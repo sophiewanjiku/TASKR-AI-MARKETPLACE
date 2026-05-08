@@ -4,18 +4,6 @@ from .models import User
 from .models import Task, SavedTask
 from .models import PaymentMethod, Payout
 
-@admin.register(PaymentMethod)
-class PaymentMethodAdmin(admin.ModelAdmin):
-    # Note: phone number is encrypted so show account name instead
-    list_display = ['user', 'account_name', 'is_verified', 'created_at']
-    list_filter  = ['is_verified']
-
-@admin.register(Payout)
-class PayoutAdmin(admin.ModelAdmin):
-    list_display  = ['user', 'task', 'amount', 'status', 'accuracy_score', 'created_at']
-    list_filter   = ['status']
-    search_fields = ['user__email', 'task__title']
-
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     # Columns shown in the user list
