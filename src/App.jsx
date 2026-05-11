@@ -6,6 +6,7 @@ import FindJobs from './pages/FindJobs';
 import UploadTask from './pages/UploadTask';
 import MpesaSetup from './pages/MpesaSetup';
 import Payouts from './pages/Payouts';
+import AdminPayouts from './pages/AdminPayouts';
 
 // ── Protects routes that require login ──
 // If no access token exists in localStorage, redirect to /login
@@ -49,7 +50,7 @@ function App() {
         <Route path="/admin/users"        element={<PrivateRoute><div className="p-8 text-gray-400">All Users — coming soon</div></PrivateRoute>} />
         <Route path="/admin/flagged"      element={<PrivateRoute><div className="p-8 text-gray-400">Flagged Accounts — coming soon</div></PrivateRoute>} />
         <Route path="/admin/verification" element={<PrivateRoute><div className="p-8 text-gray-400">Verification Queue — coming soon</div></PrivateRoute>} />
-        <Route path="/admin/payouts"      element={<PrivateRoute><div className="p-8 text-gray-400">Payouts — coming soon</div></PrivateRoute>} />
+        <Route path="/admin/payouts" element={<PrivateRoute><AdminPayouts /></PrivateRoute>} />
         <Route path="/admin/reports"      element={<PrivateRoute><div className="p-8 text-gray-400">Revenue Reports — coming soon</div></PrivateRoute>} />
         <Route path="/admin/settings"     element={<PrivateRoute><div className="p-8 text-gray-400">Settings — coming soon</div></PrivateRoute>} />
 
