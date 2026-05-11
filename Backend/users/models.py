@@ -2,6 +2,9 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from .encryption import encrypt, decrypt
+import random
+import string
+from django.utils import timezone
 
 
 # UserManager handles the logic for creating regular users and superusers
@@ -236,3 +239,91 @@ class Payout(models.Model):
 
     def __str__(self):
         return f"{self.user.email} — {self.task.title} — {self.status}"
+    
+class EmailVerification(models.Model):
+    """
+    Stores the 6-digit verification code sent to a user's email.
+    Code expires after 10 minutes.
+    """
+    user       = models.OneToOneField(User, on_delete=models.CASCADE, related_name='email_verification')
+    code       = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_used    = models.BooleanField(default=False)
+
+    def is_expired(self):
+        # Code expires after 10 minutes
+        return (timezone.now() - self.created_at).seconds > 600
+
+    @staticmethod
+    def generate_code():
+        # Generate a random 6-digit numeric code
+        return ''.join(random.choices(string.digits, k=6))
+
+    def __str__(self):
+        return f"{self.user.email} — {self.code}"
+
+
+class UserProfile(models.Model):
+    """
+    Extended profile information for each worker.
+    Linked one-to-one with the User model.
+    """
+    user            = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+
+    # Personal info
+    date_of_birth   = models.DateField(null=True, blank=True)
+    location        = models.CharField(max_length=255, blank=True)
+    about           = models.TextField(blank=True)
+
+    # Profile photo — stored in media/profiles/
+    photo           = models.ImageField(upload_to='profiles/', null=True, blank=True)
+
+    # CV document — stored in media/cvs/
+    cv              = models.FileField(upload_to='cvs/', null=True, blank=True)
+
+    # Skills stored as comma-separated string
+    skills          = models.TextField(blank=True)
+
+    # Tracks how far through the wizard the user got
+    # 0 = not started, 7 = complete
+    onboarding_step = models.IntegerField(default=0)
+    is_complete     = models.BooleanField(default=False)
+
+    # Terms accepted
+    terms_accepted  = models.BooleanField(default=False)
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
+
+    created_at      = models.DateTimeField(auto_now_add=True)
+    updated_at      = models.DateTimeField(auto_now=True)
+
+    def skills_list(self):
+        return [s.strip() for s in self.skills.split(',') if s.strip()]
+
+    def __str__(self):
+        return f"{self.user.email} — profile"
+
+
+class Education(models.Model):
+    """One education entry for a user — they can have multiple."""
+    profile     = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='education')
+    degree      = models.CharField(max_length=255)
+    institution = models.CharField(max_length=255)
+    year        = models.IntegerField(null=True, blank=True)
+    grade       = models.CharField(max_length=100, blank=True)
+
+    def __str__(self):
+        return f"{self.degree} — {self.institution}"
+
+
+class WorkExperience(models.Model):
+    """One work experience entry — they can have multiple."""
+    profile     = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='experience')
+    job_title   = models.CharField(max_length=255)
+    company     = models.CharField(max_length=255)
+    from_date   = models.DateField(null=True, blank=True)
+    to_date     = models.DateField(null=True, blank=True)
+    description = models.TextField(blank=True)
+    is_current  = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.job_title} at {self.company}"
