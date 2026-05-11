@@ -3,6 +3,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import User
 from .models import Task, SavedTask
 from .models import PaymentMethod, Payout
+from .models import EmailVerification, UserProfile, Education, WorkExperience
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
@@ -50,3 +51,21 @@ class PayoutAdmin(admin.ModelAdmin):
     list_display  = ['user', 'task', 'amount', 'status', 'accuracy_score', 'created_at']
     list_filter   = ['status']
     search_fields = ['user__email', 'task__title']    
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display  = ['user', 'location', 'is_complete', 'onboarding_step', 'terms_accepted']
+    list_filter   = ['is_complete', 'terms_accepted']
+    search_fields = ['user__email', 'user__full_name']
+
+@admin.register(Education)
+class EducationAdmin(admin.ModelAdmin):
+    list_display = ['profile', 'degree', 'institution', 'year']
+
+@admin.register(WorkExperience)
+class WorkExperienceAdmin(admin.ModelAdmin):
+    list_display = ['profile', 'job_title', 'company', 'from_date', 'to_date']
+
+@admin.register(EmailVerification)
+class EmailVerificationAdmin(admin.ModelAdmin):
+    list_display = ['user', 'code', 'is_used', 'created_at']
