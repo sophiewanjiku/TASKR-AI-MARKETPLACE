@@ -164,3 +164,15 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# Email configuration — used for sending verification codes
+EMAIL_BACKEND       = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST          = 'smtp.gmail.com'
+EMAIL_PORT          = 587
+EMAIL_USE_TLS       = True
+EMAIL_HOST_USER     = env('EMAIL_HOST_USER')   # your Gmail address
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD') # your Gmail app password
+
+# Media files — for profile photo and CV uploads
+MEDIA_URL  = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
