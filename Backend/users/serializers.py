@@ -2,6 +2,8 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import Task, SavedTask
+from .models import UserProfile, Education, WorkExperience
+
 
 # Get the active User model (our custom one defined in models.py)
 User = get_user_model()
@@ -54,4 +56,50 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def get_posted_by_name(self, obj):
         # Return the poster's full name or fallback to email
-        return obj.posted_by.full_name if obj.posted_by else 'Admin'        
+        return obj.posted_by.full_name if obj.posted_by else 'Admin'    
+
+
+class EducationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = Education
+        fields = ['id', 'degree', 'institution', 'year', 'grade']
+
+
+class WorkExperienceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = WorkExperience
+        fields = ['id', 'job_title', 'company', 'from_date', 'to_date', 'description', 'is_current']
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    # Nest education and experience inside the profile response
+    education  = EducationSerializer(many=True, read_only=True)
+    experience = WorkExperienceSerializer(many=True, read_only=True)
+    skills_list = serializers.SerializerMethodField()
+    photo_url   = serializers.SerializerMethodField()
+    cv_url      = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = UserProfile
+        fields = [
+            'id', 'date_of_birth', 'location', 'about',
+            'photo', 'photo_url', 'cv', 'cv_url',
+            'skills', 'skills_list', 'onboarding_step',
+            'is_complete', 'terms_accepted', 'education', 'experience',
+        ]
+
+    def get_skills_list(self, obj):
+        return obj.skills_list()
+
+    def get_photo_url(self, obj):
+        # Return the full URL of the profile photo if it exists
+        request = self.context.get('request')
+        if obj.photo and request:
+            return request.build_absolute_uri(obj.photo.url)
+        return None
+
+    def get_cv_url(self, obj):
+        request = self.context.get('request')
+        if obj.cv and request:
+            return request.build_absolute_uri(obj.cv.url)
+        return None    

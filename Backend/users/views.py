@@ -16,6 +16,11 @@ from .mpesa import send_b2c_payment, get_access_token
 from .encryption import mask_phone
 from .models import PaymentMethod, Payout
 from django.utils import timezone
+from django.core.mail import send_mail
+from django.conf import settings as django_settings
+from .models import EmailVerification, UserProfile, Education, WorkExperience
+from .serializers import UserProfileSerializer
+from datetime import date
 
 User = get_user_model()
 
@@ -31,6 +36,12 @@ class RegisterView(APIView):
         if serializer.is_valid():
             # Save the new user to the database
             user = serializer.save()
+
+            # Send verification email immediately after registration
+            send_verification_email(user)
+
+            # Create an empty profile ready for onboarding
+            UserProfile.objects.create(user=user)
             
             # Generate a JWT refresh token for the newly registered user
             refresh = RefreshToken.for_user(user)
@@ -91,7 +102,6 @@ class AdminStatsView(APIView):
             # Count flagged/inactive accounts
             'flagged_users': User.objects.filter(is_active=False).count(),
         })
-
 
 # Returns a list of all users for the admin user management table
 # Only accessible by admin users
@@ -186,7 +196,6 @@ class TaskListView(APIView):
         serializer = TaskSerializer(tasks, many=True)
         return Response(serializer.data)
 
-
 # Returns a single task by ID
 class TaskDetailView(APIView):
     permission_classes = [AllowAny]
@@ -199,7 +208,6 @@ class TaskDetailView(APIView):
 
         serializer = TaskSerializer(task)
         return Response(serializer.data)
-
 
 # Saves or unsaves a task for the logged-in user (toggle)
 class SaveTaskView(APIView):
@@ -220,7 +228,6 @@ class SaveTaskView(APIView):
         # Otherwise save it
         SavedTask.objects.create(user=request.user, task=task)
         return Response({'saved': True, 'message': 'Task saved successfully'})
-
 
 # Returns all saved tasks for the logged-in user
 class SavedTaskListView(APIView):
@@ -265,7 +272,6 @@ class AdminUploadTaskView(APIView):
 
         serializer = TaskSerializer(task)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
 
 # Admin only — returns all tasks including unpublished drafts
 class AdminTaskListView(APIView):
@@ -317,7 +323,6 @@ class ConnectMpesaView(APIView):
         except PaymentMethod.DoesNotExist:
             return Response({'connected': False})
 
-
 # ── USER: View payout history ──
 class UserPayoutListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -347,7 +352,6 @@ class UserPayoutListView(APIView):
             'total_earned':   total_earned,
             'pending_amount': pending_amount,
         })
-
 
 # ── ADMIN: List all payouts with user payment details ──
 class AdminPayoutListView(APIView):
@@ -396,7 +400,6 @@ class AdminPayoutListView(APIView):
 
         return Response(data)
 
-
 # ── ADMIN: Verify a submission and set accuracy score ──
 class AdminVerifyPayoutView(APIView):
     permission_classes = [IsAdminUser]
@@ -428,7 +431,6 @@ class AdminVerifyPayoutView(APIView):
             'message': f'Payout {action}d successfully',
             'status':  payout.status,
         })
-
 
 # ── ADMIN: Send actual M-Pesa payment via Daraja B2C ──
 class AdminSendPayoutView(APIView):
@@ -478,7 +480,6 @@ class AdminSendPayoutView(APIView):
             payout.save()
             return Response({'error': str(e)}, status=500)
 
-
 # ── DARAJA CALLBACK: Receives payment confirmation from Safaricom ──
 class MpesaCallbackView(APIView):
     # No auth — Safaricom calls this endpoint directly
@@ -515,4 +516,240 @@ class MpesaCallbackView(APIView):
             pass  # Unknown conversation ID — ignore silently
 
         # Daraja expects this exact response format
-        return Response({'ResultCode': 0, 'ResultDesc': 'Accepted'})       
+        return Response({'ResultCode': 0, 'ResultDesc': 'Accepted'})      
+
+# ── Send verification email on registration ──
+def send_verification_email(user):
+    """
+    Generates a 6-digit code and emails it to the user.
+    Called automatically after registration.
+    """
+    code = EmailVerification.generate_code()
+
+    # Delete any existing code for this user before creating a new one
+    EmailVerification.objects.filter(user=user).delete()
+    EmailVerification.objects.create(user=user, code=code)
+
+    send_mail(
+        subject = 'Your Taskr AI verification code',
+        message = f'Hi {user.full_name},\n\nYour verification code is: {code}\n\nThis code expires in 10 minutes.\n\nTaskr AI Team',
+        from_email = django_settings.EMAIL_HOST_USER,
+        recipient_list = [user.email],
+        fail_silently = False,
+    )
+
+# ── Verify email with code ──
+class VerifyEmailView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email')
+        code  = request.data.get('code')
+
+        try:
+            user         = User.objects.get(email=email)
+            verification = user.email_verification
+        except (User.DoesNotExist, EmailVerification.DoesNotExist):
+            return Response({'error': 'Invalid email or code'}, status=400)
+
+        if verification.is_used:
+            return Response({'error': 'Code already used'}, status=400)
+
+        if verification.is_expired():
+            return Response({'error': 'Code expired — please request a new one'}, status=400)
+
+        if verification.code != code:
+            return Response({'error': 'Incorrect code'}, status=400)
+
+        # Mark code as used and user as verified
+        verification.is_used  = True
+        verification.save()
+        user.is_verified = True
+        user.save()
+
+        return Response({'message': 'Email verified successfully'})
+
+# ── Resend verification code ──
+class ResendVerificationView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email')
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=404)
+
+        if user.is_verified:
+            return Response({'error': 'Email already verified'}, status=400)
+
+        # Send a fresh code
+        send_verification_email(user)
+        return Response({'message': 'Verification code resent'})
+
+# ── Get or update user profile ──
+class UserProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Get or create a profile for this user
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        serializer = UserProfileSerializer(profile, context={'request': request})
+        return Response({
+            'profile':    serializer.data,
+            'user': {
+                'id':         request.user.id,
+                'email':      request.user.email,
+                'full_name':  request.user.full_name,
+                'is_verified': request.user.is_verified,
+            }
+        })
+
+    def patch(self, request):
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+
+        # Handle photo upload
+        if 'photo' in request.FILES:
+            profile.photo = request.FILES['photo']
+
+        # Handle CV upload
+        if 'cv' in request.FILES:
+            profile.cv = request.FILES['cv']
+
+        # Update text fields if provided
+        fields = ['about', 'location', 'skills', 'onboarding_step', 'is_complete']
+        for field in fields:
+            if field in request.data:
+                setattr(profile, field, request.data[field])
+
+        # Handle date of birth — check age
+        dob = request.data.get('date_of_birth')
+        if dob:
+            try:
+                dob_date = date.fromisoformat(dob)
+                today    = date.today()
+                age      = today.year - dob_date.year - (
+                    (today.month, today.day) < (dob_date.month, dob_date.day)
+                )
+                if age < 18:
+                    return Response(
+                        {'error': 'You must be 18 or older to use Taskr AI'},
+                        status=400
+                    )
+                profile.date_of_birth = dob_date
+            except ValueError:
+                return Response({'error': 'Invalid date format'}, status=400)
+
+        # Handle terms acceptance
+        if request.data.get('terms_accepted'):
+            profile.terms_accepted    = True
+            profile.terms_accepted_at = timezone.now()
+
+        # Update full name on User model if provided
+        full_name = request.data.get('full_name')
+        if full_name:
+            request.user.full_name = full_name
+            request.user.save()
+
+        profile.save()
+        serializer = UserProfileSerializer(profile, context={'request': request})
+        return Response(serializer.data)
+
+# ── Save education entries ──
+class EducationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        edu = Education.objects.create(
+            profile     = profile,
+            degree      = request.data.get('degree', ''),
+            institution = request.data.get('institution', ''),
+            year        = request.data.get('year'),
+            grade       = request.data.get('grade', ''),
+        )
+        return Response({'id': edu.id, 'message': 'Education added'}, status=201)
+
+    def delete(self, request, edu_id):
+        try:
+            edu = Education.objects.get(id=edu_id, profile__user=request.user)
+            edu.delete()
+            return Response({'message': 'Deleted'})
+        except Education.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+
+# ── Save work experience entries ──
+class WorkExperienceView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        profile, _ = UserProfile.objects.get_or_create(user=request.user)
+        exp = WorkExperience.objects.create(
+            profile     = profile,
+            job_title   = request.data.get('job_title', ''),
+            company     = request.data.get('company', ''),
+            from_date   = request.data.get('from_date') or None,
+            to_date     = request.data.get('to_date') or None,
+            description = request.data.get('description', ''),
+            is_current  = request.data.get('is_current', False),
+        )
+        return Response({'id': exp.id, 'message': 'Experience added'}, status=201)
+
+    def delete(self, request, exp_id):
+        try:
+            exp = WorkExperience.objects.get(id=exp_id, profile__user=request.user)
+            exp.delete()
+            return Response({'message': 'Deleted'})
+        except WorkExperience.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+
+# ── Delete account ──
+class DeleteAccountView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        # Permanently delete the user and all related data
+        request.user.delete()
+        return Response({'message': 'Account deleted successfully'})
+
+# ── Change email ──
+class ChangeEmailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        new_email = request.data.get('email', '').strip()
+        password  = request.data.get('password', '')
+
+        # Verify password before allowing email change
+        if not request.user.check_password(password):
+            return Response({'error': 'Incorrect password'}, status=400)
+
+        if User.objects.filter(email=new_email).exists():
+            return Response({'error': 'Email already in use'}, status=400)
+
+        # Update email and require re-verification
+        request.user.email       = new_email
+        request.user.is_verified = False
+        request.user.save()
+
+        # Send new verification code
+        send_verification_email(request.user)
+        return Response({'message': 'Email updated — please verify your new address'})
+
+# ── Change password ──
+class ChangePasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        old_password = request.data.get('old_password', '')
+        new_password = request.data.get('new_password', '')
+
+        if not request.user.check_password(old_password):
+            return Response({'error': 'Current password is incorrect'}, status=400)
+
+        if len(new_password) < 8:
+            return Response({'error': 'New password must be at least 8 characters'}, status=400)
+
+        request.user.set_password(new_password)
+        request.user.save()
+        return Response({'message': 'Password changed successfully'}) 
