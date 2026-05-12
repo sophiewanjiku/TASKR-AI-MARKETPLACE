@@ -18,6 +18,14 @@ from .views import (
     AdminVerifyPayoutView,
     AdminSendPayoutView,
     MpesaCallbackView,
+    VerifyEmailView,
+    ResendVerificationView,
+    UserProfileView,
+    EducationView,
+    WorkExperienceView,
+    DeleteAccountView,
+    ChangeEmailView,
+    ChangePasswordView
 )
 
 urlpatterns = [
