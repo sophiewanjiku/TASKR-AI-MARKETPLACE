@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { registerUser } from '../api/auth';
+import { useNavigate } from 'react-router-dom';
 
 export default function Register() {
+  const navigate = useNavigate();
   // Track form field values
   const [formData, setFormData] = useState({
     full_name: '',
@@ -34,6 +36,8 @@ export default function Register() {
       // Save the JWT tokens to localStorage so the user stays logged in
       localStorage.setItem('access', data.access);
       localStorage.setItem('refresh', data.refresh);
+      localStorage.setItem('pending_email', data.user.email);
+      navigate('/verify-email', { state: { email: data.user.email } });
 
       setMessage(`Welcome, ${data.user.full_name}! Your account has been created.`);
     } catch (err) {

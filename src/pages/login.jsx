@@ -24,9 +24,23 @@ export default function Login() {
       const data = await loginUser(formData);
 
       // Store tokens so the user stays authenticated across pages
+      localStorage.setItem('user', JSON.stringify(data.user));
       localStorage.setItem('access', data.access);
       localStorage.setItem('refresh', data.refresh);
-      localStorage.setItem('user', JSON.stringify(data.user)); // save user info for dashboard
+
+  if (!data.user.is_verified) {
+    // Send to verify email first
+    localStorage.setItem('pending_email', data.user.email);
+    navigate('/verify-email', { state: { email: data.user.email } });
+  } else {
+    // Check payment method then profile
+    const pmData = await getPaymentMethod();
+    if (!pmData.connected) {
+      navigate('/setup/mpesa');
+    } else {
+      navigate('/dashboard');
+    }
+  }
       
 // Check if user has connected their M-Pesa
     const pmData = await getPaymentMethod();

@@ -7,6 +7,9 @@ import UploadTask from './pages/UploadTask';
 import MpesaSetup from './pages/MpesaSetup';
 import Payouts from './pages/Payouts';
 import AdminPayouts from './pages/AdminPayouts';
+import VerifyEmail   from './pages/VerifyEmail';
+import ProfileSetup  from './pages/ProfileSetup';
+import Profile  from './pages/Profile';
 
 // ── Protects routes that require login ──
 // If no access token exists in localStorage, redirect to /login
@@ -21,7 +24,7 @@ function App() {
       <Routes>
         {/* Public routes — no login required */}
         <Route path="/register" element={<Register />} />
-        <Route path="/login"    element={<Login />} />
+        <Route path="/verify-email"   element={<VerifyEmail />} />
 
         {/* Protected route — only accessible when logged in */}
         <Route path="/dashboard" element={
@@ -39,8 +42,9 @@ function App() {
         <Route path="/invoices"      element={<PrivateRoute><div className="p-8 text-gray-400">Invoices & Reports — coming soon</div></PrivateRoute>} />
         <Route path="/payouts" element={<PrivateRoute><Payouts /></PrivateRoute>} />
         <Route path="/setup/mpesa" element={<PrivateRoute><MpesaSetup /></PrivateRoute>} />
+        <Route path="/setup/profile"  element={<PrivateRoute><ProfileSetup /></PrivateRoute>} />
+        <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
 
-        <Route path="/profile"       element={<PrivateRoute><div className="p-8 text-gray-400">My Profile — coming soon</div></PrivateRoute>} />
         {/* Admin routes — protected, only accessible when logged in */}
         <Route path="/admin/dashboard"    element={<PrivateRoute><AdminDashboard /></PrivateRoute>} />
         <Route path="/admin/analytics"    element={<PrivateRoute><div className="p-8 text-gray-400">Analytics — coming soon</div></PrivateRoute>} />

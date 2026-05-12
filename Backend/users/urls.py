@@ -34,6 +34,22 @@ urlpatterns = [
     path('login/',              LoginView.as_view(),           name='login'),
     path('token/refresh/',      TokenRefreshView.as_view(),    name='token_refresh'),
 
+    # ── Email verification ──
+    path('verify-email/',   VerifyEmailView.as_view(),      name='verify-email'),
+    path('resend-code/',    ResendVerificationView.as_view(), name='resend-code'),
+
+    # ── Profile ──
+    path('profile/',                            UserProfileView.as_view(),    name='profile'),
+    path('profile/education/',                  EducationView.as_view(),      name='education'),
+    path('profile/education/<int:edu_id>/',     EducationView.as_view(),      name='education-delete'),
+    path('profile/experience/',                 WorkExperienceView.as_view(), name='experience'),
+    path('profile/experience/<int:exp_id>/',    WorkExperienceView.as_view(), name='experience-delete'),
+
+    # ── Account management ──
+    path('account/delete/',          DeleteAccountView.as_view(),   name='delete-account'),
+    path('account/change-email/',    ChangeEmailView.as_view(),     name='change-email'),
+    path('account/change-password/', ChangePasswordView.as_view(),  name='change-password'),
+
     # ── Admin user management ──
     path('admin/stats/',                        AdminStatsView.as_view(),           name='admin-stats'),
     path('admin/users/',                        AdminUserListView.as_view(),         name='admin-users'),
