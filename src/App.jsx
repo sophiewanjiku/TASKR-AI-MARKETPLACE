@@ -10,6 +10,9 @@ import AdminPayouts from './pages/AdminPayouts';
 import VerifyEmail   from './pages/VerifyEmail';
 import ProfileSetup  from './pages/ProfileSetup';
 import Profile  from './pages/Profile';
+import Invoices       from './pages/Invoices';
+import CompletedJobs  from './pages/CompletedJobs';
+import Notifications  from './pages/Notifications';
 
 // ── Protects routes that require login ──
 // If no access token exists in localStorage, redirect to /login
@@ -35,11 +38,11 @@ function App() {
 
         {/* Placeholder routes for pages we'll build next */}
         <Route path="/messages"      element={<PrivateRoute><div className="p-8 text-gray-400">Messages — coming soon</div></PrivateRoute>} />
-        <Route path="/notifications" element={<PrivateRoute><div className="p-8 text-gray-400">Notifications — coming soon</div></PrivateRoute>} />
+        <Route path="/notifications" element={<PrivateRoute><Notifications /></PrivateRoute>} />
         <Route path="/find-jobs" element={<PrivateRoute><FindJobs /></PrivateRoute>} />
         <Route path="/proposals"     element={<PrivateRoute><div className="p-8 text-gray-400">My Proposals — coming soon</div></PrivateRoute>} />
-        <Route path="/completed"     element={<PrivateRoute><div className="p-8 text-gray-400">Completed Jobs — coming soon</div></PrivateRoute>} />
-        <Route path="/invoices"      element={<PrivateRoute><div className="p-8 text-gray-400">Invoices & Reports — coming soon</div></PrivateRoute>} />
+        <Route path="/completed"     element={<PrivateRoute><CompletedJobs /></PrivateRoute>} />
+        <Route path="/invoices"      element={<PrivateRoute><Invoices /></PrivateRoute>} />
         <Route path="/payouts" element={<PrivateRoute><Payouts /></PrivateRoute>} />
         <Route path="/setup/mpesa" element={<PrivateRoute><MpesaSetup /></PrivateRoute>} />
         <Route path="/setup/profile"  element={<PrivateRoute><ProfileSetup /></PrivateRoute>} />

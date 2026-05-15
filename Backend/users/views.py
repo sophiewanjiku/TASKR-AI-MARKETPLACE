@@ -21,8 +21,26 @@ from django.conf import settings as django_settings
 from .models import EmailVerification, UserProfile, Education, WorkExperience
 from .serializers import UserProfileSerializer
 from datetime import date
+from .models import Notification, Invoice
+from datetime import datetime
+import calendar
+from decimal import Decimal
 
 User = get_user_model()
+
+
+def create_notification(user, title, body, notif_type='system'):
+    """
+    Helper to create a notification for a user.
+    Call this anywhere in the codebase when something notable happens.
+    e.g. create_notification(user, 'Payout sent', '$95 sent to M-Pesa', 'payment')
+    """
+    Notification.objects.create(
+        user       = user,
+        title      = title,
+        body       = body,
+        notif_type = notif_type,
+    )
 
 # Handles POST /api/auth/register/
 class RegisterView(APIView):
@@ -55,7 +73,6 @@ class RegisterView(APIView):
         
         # If validation fails, return the errors so the frontend can display them
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 # Handles POST /api/auth/login/
 class LoginView(APIView):
@@ -420,6 +437,21 @@ class AdminVerifyPayoutView(APIView):
         if action == 'approve':
             # Mark as approved — ready for payout
             payout.status = 'approved'
+            # After payout.status = 'approved'
+        if action == 'approve':
+            create_notification(
+                user       = payout.user,
+                title      = 'Submission approved',
+                body       = f'Your submission for "{payout.task.title}" was approved with {accuracy_score}% accuracy. Payout is being processed.',
+                notif_type = 'task',
+            )
+        elif action == 'reject':
+            create_notification(
+                user       = payout.user,
+                title      = 'Submission rejected',
+                body       = f'Your submission for "{payout.task.title}" was rejected. Notes: {admin_notes or "No notes provided."}',
+                notif_type = 'task',
+            )
         elif action == 'reject':
             # Mark as rejected — worker will be notified
             payout.status = 'rejected'
@@ -468,7 +500,14 @@ class AdminSendPayoutView(APIView):
             payout.status                 = 'processing'
             payout.mpesa_conversation_id  = result.get('ConversationID', '')
             payout.save()
-
+            
+            # Notify the worker that their payment is on the way
+            create_notification(
+                user       = payout.user,
+                title      = f'Payout initiated — ${payout.amount}',
+                body       = f'Your M-Pesa payment for "{payout.task.title}" has been initiated. It should arrive within 24 hours.',
+                notif_type = 'payment',
+            )
             return Response({
                 'message':         'Payment initiated successfully',
                 'conversation_id': payout.mpesa_conversation_id,
@@ -498,6 +537,13 @@ class MpesaCallbackView(APIView):
             if result_code == 0:
                 # Payment successful
                 payout.status = 'paid'
+                # After payout.status = 'paid'
+                create_notification(
+                    user       = payout.user,
+                    title      = f'Payment received — KES {payout.amount}',
+                    body       = f'Your payment for "{payout.task.title}" was successfully sent to your M-Pesa. Transaction ID: {payout.mpesa_transaction_id}',
+                    notif_type = 'payment',
+                )
                 payout.paid_at = timezone.now()
 
                 # Extract transaction ID from result parameters
@@ -753,3 +799,173 @@ class ChangePasswordView(APIView):
         request.user.set_password(new_password)
         request.user.save()
         return Response({'message': 'Password changed successfully'}) 
+    
+# ── USER: Get all notifications ──
+class NotificationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Optional filter by type
+        notif_type = request.query_params.get('type', None)
+        notifs = Notification.objects.filter(user=request.user)
+
+        if notif_type:
+            notifs = notifs.filter(notif_type=notif_type)
+
+        # Unread count for the badge
+        unread_count = notifs.filter(is_read=False).count()
+
+        data = [{
+            'id':         n.id,
+            'title':      n.title,
+            'body':       n.body,
+            'type':       n.notif_type,
+            'is_read':    n.is_read,
+            'created_at': n.created_at,
+        } for n in notifs]
+
+        return Response({
+            'notifications': data,
+            'unread_count':  unread_count,
+        })
+
+
+# ── USER: Mark notification(s) as read ──
+class MarkNotificationReadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        notif_id = request.data.get('id')  # single ID or None for mark all
+
+        if notif_id:
+            # Mark a single notification as read
+            Notification.objects.filter(
+                id=notif_id, user=request.user
+            ).update(is_read=True)
+        else:
+            # Mark all as read
+            Notification.objects.filter(
+                user=request.user, is_read=False
+            ).update(is_read=True)
+
+        return Response({'message': 'Marked as read'})
+
+
+# ── USER: Get invoices and earnings data ──
+class InvoiceListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Get all paid payouts for this user
+        payouts = Payout.objects.filter(
+            user=request.user
+        ).select_related('task').order_by('-created_at')
+
+        # ── Monthly earnings for the chart ──
+        # Group paid payouts by month
+        monthly = {}
+        for p in payouts.filter(status='paid'):
+            if p.paid_at:
+                key = p.paid_at.strftime('%b %Y')  # e.g. "Apr 2026"
+                monthly[key] = monthly.get(key, 0) + float(p.amount)
+
+        # Sort by date — most recent last for the chart
+        monthly_sorted = dict(
+            sorted(monthly.items(),
+                   key=lambda x: datetime.strptime(x[0], '%b %Y'))
+        )
+
+        # ── Summary stats ──
+        total_earned   = sum(float(p.amount) for p in payouts if p.status == 'paid')
+        this_month_key = datetime.now().strftime('%b %Y')
+        this_month     = monthly_sorted.get(this_month_key, 0)
+        avg_per_task   = total_earned / len(payouts) if payouts else 0
+        best_month_val = max(monthly_sorted.values()) if monthly_sorted else 0
+        best_month_key = max(monthly_sorted, key=monthly_sorted.get) if monthly_sorted else '—'
+
+        # ── Auto-generate invoices by month ──
+        # Group paid payouts by month into invoice objects
+        invoices = []
+        invoice_num = 1
+        for month_key, amount in reversed(list(monthly_sorted.items())):
+            # Count tasks in this month
+            month_payouts = [
+                p for p in payouts
+                if p.status == 'paid' and p.paid_at
+                and p.paid_at.strftime('%b %Y') == month_key
+            ]
+            invoices.append({
+                'number':    f'INV-{str(invoice_num).zfill(4)}',
+                'period':    month_key,
+                'tasks':     len(month_payouts),
+                'amount':    round(amount, 2),
+                'status':    'paid',
+            })
+            invoice_num += 1
+
+        # Add current month pending if exists
+        pending_payouts = payouts.filter(status__in=['pending', 'approved', 'processing'])
+        if pending_payouts.exists():
+            pending_total = sum(float(p.amount) for p in pending_payouts)
+            invoices.insert(0, {
+                'number':  f'INV-{str(invoice_num).zfill(4)}',
+                'period':  datetime.now().strftime('%b %Y'),
+                'tasks':   pending_payouts.count(),
+                'amount':  round(pending_total, 2),
+                'status':  'pending',
+            })
+
+        return Response({
+            'summary': {
+                'total_earned':  round(total_earned, 2),
+                'this_month':    round(this_month, 2),
+                'avg_per_task':  round(avg_per_task, 2),
+                'best_month':    best_month_key,
+                'best_month_val': round(best_month_val, 2),
+            },
+            'monthly_chart': monthly_sorted,  # { "Nov 2025": 120, "Dec 2025": 340, ... }
+            'invoices':       invoices,
+        })
+
+
+# ── USER: Get completed jobs ──
+class CompletedJobsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Get all payouts that are past the pending stage
+        payouts = Payout.objects.filter(
+            user=request.user,
+            status__in=['approved', 'processing', 'paid', 'rejected']
+        ).select_related('task').order_by('-created_at')
+
+        # Optional status filter
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            payouts = payouts.filter(status=status_filter)
+
+        data = [{
+            'id':           p.id,
+            'task_title':   p.task.title,
+            'category':     p.task.category,
+            'amount':       str(p.amount),
+            'status':       p.status,
+            'accuracy':     p.accuracy_score,
+            'completed_at': p.created_at,
+            'paid_at':      p.paid_at,
+            'mpesa_ref':    p.mpesa_transaction_id or None,
+        } for p in payouts]
+
+        # Performance summary
+        paid_payouts = [p for p in payouts if p.status == 'paid']
+        accuracies   = [p.accuracy_score for p in payouts if p.accuracy_score]
+
+        summary = {
+            'total_completed': payouts.count(),
+            'total_paid':      len(paid_payouts),
+            'total_earned':    sum(float(p.amount) for p in paid_payouts),
+            'avg_accuracy':    round(sum(accuracies) / len(accuracies), 1) if accuracies else 0,
+        }
+
+        return Response({'jobs': data, 'summary': summary})
+    

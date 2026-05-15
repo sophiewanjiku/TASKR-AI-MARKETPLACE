@@ -4,6 +4,7 @@ from .models import User
 from .models import Task, SavedTask
 from .models import PaymentMethod, Payout
 from .models import EmailVerification, UserProfile, Education, WorkExperience
+from .models import Notification, Invoice
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
@@ -69,3 +70,14 @@ class WorkExperienceAdmin(admin.ModelAdmin):
 @admin.register(EmailVerification)
 class EmailVerificationAdmin(admin.ModelAdmin):
     list_display = ['user', 'code', 'is_used', 'created_at']
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display  = ['user', 'title', 'notif_type', 'is_read', 'created_at']
+    list_filter   = ['notif_type', 'is_read']
+    search_fields = ['user__email', 'title']
+
+@admin.register(Invoice)
+class InvoiceAdmin(admin.ModelAdmin):
+    list_display  = ['number', 'user', 'period', 'total', 'status', 'created_at']
+    search_fields = ['number', 'user__email']

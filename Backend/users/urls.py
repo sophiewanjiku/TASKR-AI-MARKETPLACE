@@ -25,7 +25,11 @@ from .views import (
     WorkExperienceView,
     DeleteAccountView,
     ChangeEmailView,
-    ChangePasswordView
+    ChangePasswordView,
+    NotificationListView,
+    MarkNotificationReadView,
+    InvoiceListView,
+    CompletedJobsView,
 )
 
 urlpatterns = [
@@ -78,4 +82,14 @@ urlpatterns = [
 
     # ── Daraja callback — Safaricom calls this ──
     path('mpesa/callback/result/',  MpesaCallbackView.as_view(),    name='mpesa-callback'),
+
+    # ── Notifications ──
+    path('notifications/',       NotificationListView.as_view(),     name='notifications'),
+    path('notifications/read/',  MarkNotificationReadView.as_view(), name='mark-read'),
+
+    # ── Invoices & Reports ──
+    path('invoices/',            InvoiceListView.as_view(),          name='invoices'),
+
+    # ── Completed Jobs ──
+    path('completed-jobs/',      CompletedJobsView.as_view(),        name='completed-jobs'),
 ]
