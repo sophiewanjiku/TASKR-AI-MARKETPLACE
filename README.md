@@ -22,7 +22,3 @@ The main goals of the project are:
 System Architecture
 
 The project follows a client-server architecture.
-
-
-
-Two-factor authentication
