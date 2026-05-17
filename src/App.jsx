@@ -13,6 +13,9 @@ import Profile  from './pages/Profile';
 import Invoices       from './pages/Invoices';
 import CompletedJobs  from './pages/CompletedJobs';
 import Notifications  from './pages/Notifications';
+import Messages    from './pages/Messages';
+import OngoingJobs from './pages/OngoingJobs';
+import Proposals   from './pages/Proposals';
 
 // ── Protects routes that require login ──
 // If no access token exists in localStorage, redirect to /login
@@ -37,15 +40,16 @@ function App() {
         } />
 
         {/* Placeholder routes for pages we'll build next */}
-        <Route path="/messages"      element={<PrivateRoute><div className="p-8 text-gray-400">Messages — coming soon</div></PrivateRoute>} />
+        <Route path="/messages" element={<PrivateRoute><Messages /></PrivateRoute>} />
+        <Route path="/dashboard" element={<PrivateRoute><OngoingJobs /></PrivateRoute>} />
         <Route path="/notifications" element={<PrivateRoute><Notifications /></PrivateRoute>} />
         <Route path="/find-jobs" element={<PrivateRoute><FindJobs /></PrivateRoute>} />
-        <Route path="/proposals"     element={<PrivateRoute><div className="p-8 text-gray-400">My Proposals — coming soon</div></PrivateRoute>} />
-        <Route path="/completed"     element={<PrivateRoute><CompletedJobs /></PrivateRoute>} />
-        <Route path="/invoices"      element={<PrivateRoute><Invoices /></PrivateRoute>} />
+        <Route path="/proposals" element={<PrivateRoute><Proposals /></PrivateRoute>} />
+        <Route path="/completed" element={<PrivateRoute><CompletedJobs /></PrivateRoute>} />
+        <Route path="/invoices" element={<PrivateRoute><Invoices /></PrivateRoute>} />
         <Route path="/payouts" element={<PrivateRoute><Payouts /></PrivateRoute>} />
         <Route path="/setup/mpesa" element={<PrivateRoute><MpesaSetup /></PrivateRoute>} />
-        <Route path="/setup/profile"  element={<PrivateRoute><ProfileSetup /></PrivateRoute>} />
+        <Route path="/setup/profile" element={<PrivateRoute><ProfileSetup /></PrivateRoute>} />
         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
 
         {/* Admin routes — protected, only accessible when logged in */}
