@@ -332,12 +332,12 @@ class WorkExperience(models.Model):
      
      #Stores in-app notifications for each user. Created automatically by the system when key events happen e.g. payout sent, submission approved, new job match.
         
-    TYPE_CHOICES = [
-        ('payment',  'Payment'),
-        ('task',     'Task'),
-        ('system',   'System'),
-        ('message',  'Message'),
-    ]
+        TYPE_CHOICES = [
+            ('payment',  'Payment'),
+            ('task',     'Task'),
+            ('system',   'System'),
+            ('message',  'Message'),
+        ]
 
     user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
     title      = models.CharField(max_length=255)
@@ -368,3 +368,69 @@ class Invoice(models.Model):
 
     def __str__(self):
         return f"{self.number} — {self.user.email}"
+    
+    class Proposal(models.Model):
+    #Tracks a worker's application to a task. Created when a worker clicks Apply on the Find Jobs page.
+    
+        STATUS_CHOICES = [
+            ('pending',  'Pending'),   # Submitted, admin hasn't reviewed
+            ('accepted', 'Accepted'),  # Admin accepted — moves to ongoing
+            ('rejected', 'Rejected'),  # Admin rejected
+            ('withdrawn','Withdrawn'), # Worker pulled their application
+        ]
+
+        user        = models.ForeignKey(User, on_delete=models.CASCADE, related_name='proposals')
+        task        = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='proposals')
+        cover_note  = models.TextField(blank=True)  # Worker's pitch / cover letter
+        status      = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+        admin_note  = models.TextField(blank=True)  # Reason for rejection etc.
+        created_at  = models.DateTimeField(auto_now_add=True)
+        updated_at  = models.DateTimeField(auto_now=True)
+
+        # One proposal per user per task
+        class Meta:
+            unique_together = ['user', 'task']
+
+        def __str__(self):
+            return f"{self.user.email} → {self.task.title} ({self.status})"
+
+class Submission(models.Model):
+    
+    #A work submission from a worker on an accepted task. Admin reviews this and creates a Payout upon approval.
+    
+    STATUS_CHOICES = [
+        ('submitted', 'Submitted'),  # Just submitted, pending review
+        ('approved',  'Approved'),   # Admin approved — payout created
+        ('rejected',  'Rejected'),   # Admin rejected — worker can resubmit
+    ]
+
+    proposal   = models.ForeignKey(Proposal, on_delete=models.CASCADE, related_name='submissions')
+    notes      = models.TextField(blank=True)   # Worker's notes on submission
+    file       = models.FileField(upload_to='submissions/', null=True, blank=True)
+    status     = models.CharField(max_length=20, choices=STATUS_CHOICES, default='submitted')
+    admin_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Submission by {self.proposal.user.email} for {self.proposal.task.title}"
+
+
+class Message(models.Model):
+    """
+    A single message in a conversation between a worker and admin.
+    """
+    # Sender is always a User — either the worker or an admin
+    sender     = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_messages')
+    # Receiver is the other party
+    receiver   = models.ForeignKey(User, on_delete=models.CASCADE, related_name='received_messages')
+    # Optional link to a task for context
+    task       = models.ForeignKey(Task, on_delete=models.SET_NULL, null=True, blank=True, related_name='messages')
+    body       = models.TextField()
+    is_read    = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"{self.sender.email} → {self.receiver.email}: {self.body[:40]}"

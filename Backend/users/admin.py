@@ -5,6 +5,7 @@ from .models import Task, SavedTask
 from .models import PaymentMethod, Payout
 from .models import EmailVerification, UserProfile, Education, WorkExperience
 from .models import Notification, Invoice
+from .models import Proposal, Submission, Message
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
@@ -81,3 +82,20 @@ class NotificationAdmin(admin.ModelAdmin):
 class InvoiceAdmin(admin.ModelAdmin):
     list_display  = ['number', 'user', 'period', 'total', 'status', 'created_at']
     search_fields = ['number', 'user__email']
+
+@admin.register(Proposal)
+class ProposalAdmin(admin.ModelAdmin):
+    list_display  = ['user', 'task', 'status', 'created_at']
+    list_filter   = ['status']
+    search_fields = ['user__email', 'task__title']
+
+@admin.register(Submission)
+class SubmissionAdmin(admin.ModelAdmin):
+    list_display  = ['proposal', 'status', 'created_at']
+    list_filter   = ['status']
+
+@admin.register(Message)
+class MessageAdmin(admin.ModelAdmin):
+    list_display  = ['sender', 'receiver', 'task', 'is_read', 'created_at']
+    list_filter   = ['is_read']
+    search_fields = ['sender__email', 'receiver__email']
