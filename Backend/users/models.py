@@ -36,7 +36,6 @@ class UserManager(BaseUserManager):
         # Reuse the create_user logic with elevated permissions
         return self.create_user(email, password, **extra_fields)
 
-
 # The main User model — replaces Django's default User
 class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
@@ -152,7 +151,6 @@ class Task(models.Model):
     def skills_list(self):
         return [s.strip() for s in self.skills.split(',') if s.strip()]
 
-
 # Saved jobs — tracks which tasks a user has bookmarked
 class SavedTask(models.Model):
     user    = models.ForeignKey(User, on_delete=models.CASCADE, related_name='saved_tasks')
@@ -202,7 +200,6 @@ class PaymentMethod(models.Model):
 
     def __str__(self):
         return f"{self.user.email} — M-Pesa"
-
 
 class Payout(models.Model):
     """
@@ -262,7 +259,6 @@ class EmailVerification(models.Model):
     def __str__(self):
         return f"{self.user.email} — {self.code}"
 
-
 class UserProfile(models.Model):
     """
     Extended profile information for each worker.
@@ -302,7 +298,6 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"{self.user.email} — profile"
 
-
 class Education(models.Model):
     """One education entry for a user — they can have multiple."""
     profile     = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='education')
@@ -313,7 +308,6 @@ class Education(models.Model):
 
     def __str__(self):
         return f"{self.degree} — {self.institution}"
-
 
 class WorkExperience(models.Model):
     """One work experience entry — they can have multiple."""
@@ -328,48 +322,7 @@ class WorkExperience(models.Model):
     def __str__(self):
         return f"{self.job_title} at {self.company}"
     
-    class Notification(models.Model):
-     
-     #Stores in-app notifications for each user. Created automatically by the system when key events happen e.g. payout sent, submission approved, new job match.
-        
-        TYPE_CHOICES = [
-            ('payment',  'Payment'),
-            ('task',     'Task'),
-            ('system',   'System'),
-            ('message',  'Message'),
-        ]
-
-    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
-    title      = models.CharField(max_length=255)
-    body       = models.TextField()
-    notif_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='system')
-    is_read    = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"{self.user.email} — {self.title}"
-
-
-class Invoice(models.Model):
-    """
-    Auto-generated monthly invoice grouping all paid tasks for a user.
-    Created at the end of each month or when a payout is marked paid.
-    """
-    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices')
-    # Invoice number e.g. INV-0014
-    number     = models.CharField(max_length=20, unique=True)
-    period     = models.CharField(max_length=20)  # e.g. "April 2026"
-    total      = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    status     = models.CharField(max_length=20, default='paid')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.number} — {self.user.email}"
-    
-    class Proposal(models.Model):
+class Proposal(models.Model):
     #Tracks a worker's application to a task. Created when a worker clicks Apply on the Find Jobs page.
     
         STATUS_CHOICES = [
@@ -414,7 +367,6 @@ class Submission(models.Model):
     def __str__(self):
         return f"Submission by {self.proposal.user.email} for {self.proposal.task.title}"
 
-
 class Message(models.Model):
     """
     A single message in a conversation between a worker and admin.
@@ -434,3 +386,43 @@ class Message(models.Model):
 
     def __str__(self):
         return f"{self.sender.email} → {self.receiver.email}: {self.body[:40]}"
+    
+class Notification(models.Model):
+     
+     #Stores in-app notifications for each user. Created automatically by the system when key events happen e.g. payout sent, submission approved, new job match.
+        
+    TYPE_CHOICES = [
+        ('payment',  'Payment'),
+        ('task',     'Task'),
+        ('system',   'System'),
+        ('message',  'Message'),
+        ]
+
+    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    title      = models.CharField(max_length=255)
+    body       = models.TextField()
+    notif_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='system')
+    is_read    = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user.email} — {self.title}"
+
+class Invoice(models.Model):
+    """
+    Auto-generated monthly invoice grouping all paid tasks for a user.
+    Created at the end of each month or when a payout is marked paid.
+    """
+    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='invoices')
+    # Invoice number e.g. INV-0014
+    number     = models.CharField(max_length=20, unique=True)
+    period     = models.CharField(max_length=20)  # e.g. "April 2026"
+    total      = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    status     = models.CharField(max_length=20, default='paid')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.number} — {self.user.email}"
