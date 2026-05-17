@@ -30,6 +30,17 @@ from .views import (
     MarkNotificationReadView,
     InvoiceListView,
     CompletedJobsView,
+    SubmitProposalView,
+    UserProposalListView,
+    WithdrawProposalView,
+    OngoingJobsView,
+    OngoingJobDetailView,
+    SubmitWorkView,
+    ConversationListView,
+    MessageThreadView,
+    SendMessageView,
+    AdminProposalListView,
+    AdminReviewProposalView,
 )
 
 urlpatterns = [
@@ -92,4 +103,23 @@ urlpatterns = [
 
     # ── Completed Jobs ──
     path('completed-jobs/',      CompletedJobsView.as_view(),        name='completed-jobs'),
-]
+
+    # ── Proposals ──
+    path('proposals/',                          UserProposalListView.as_view(),   name='proposals'),
+    path('proposals/<int:proposal_id>/withdraw/', WithdrawProposalView.as_view(), name='withdraw-proposal'),
+    path('tasks/<int:task_id>/apply/',          SubmitProposalView.as_view(),     name='apply-task'),
+
+    # ── Ongoing jobs ──
+    path('ongoing-jobs/',                       OngoingJobsView.as_view(),        name='ongoing-jobs'),
+    path('ongoing-jobs/<int:proposal_id>/',     OngoingJobDetailView.as_view(),   name='ongoing-job-detail'),
+    path('ongoing-jobs/<int:proposal_id>/submit/', SubmitWorkView.as_view(),      name='submit-work'),
+
+    # ── Messages ──
+    path('messages/',                           ConversationListView.as_view(),   name='conversations'),
+    path('messages/<int:other_user_id>/',       MessageThreadView.as_view(),      name='message-thread'),
+    path('messages/send/',                      SendMessageView.as_view(),        name='send-message'),
+
+    # ── Admin proposals ──
+    path('admin/proposals/',                              AdminProposalListView.as_view(),   name='admin-proposals'),
+    path('admin/proposals/<int:proposal_id>/review/',     AdminReviewProposalView.as_view(), name='admin-review-proposal'),
+    ]

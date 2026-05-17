@@ -25,6 +25,7 @@ from .models import Notification, Invoice
 from datetime import datetime
 import calendar
 from decimal import Decimal
+from .models import Proposal, Submission, Message
 
 User = get_user_model()
 
@@ -829,7 +830,6 @@ class NotificationListView(APIView):
             'unread_count':  unread_count,
         })
 
-
 # ── USER: Mark notification(s) as read ──
 class MarkNotificationReadView(APIView):
     permission_classes = [IsAuthenticated]
@@ -849,7 +849,6 @@ class MarkNotificationReadView(APIView):
             ).update(is_read=True)
 
         return Response({'message': 'Marked as read'})
-
 
 # ── USER: Get invoices and earnings data ──
 class InvoiceListView(APIView):
@@ -927,7 +926,6 @@ class InvoiceListView(APIView):
             'invoices':       invoices,
         })
 
-
 # ── USER: Get completed jobs ──
 class CompletedJobsView(APIView):
     permission_classes = [IsAuthenticated]
@@ -968,4 +966,444 @@ class CompletedJobsView(APIView):
         }
 
         return Response({'jobs': data, 'summary': summary})
+    
+# ── WORKER: Submit a proposal for a task ──
+class SubmitProposalView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, task_id):
+        try:
+            task = Task.objects.get(id=task_id, is_published=True)
+        except Task.DoesNotExist:
+            return Response({'error': 'Task not found'}, status=404)
+
+        # Check if already applied
+        if Proposal.objects.filter(user=request.user, task=task).exists():
+            return Response({'error': 'You have already applied to this task'}, status=400)
+
+        proposal = Proposal.objects.create(
+            user       = request.user,
+            task       = task,
+            cover_note = request.data.get('cover_note', ''),
+        )
+
+        # Notify admin of new proposal
+        admin_users = User.objects.filter(is_staff=True)
+        for admin in admin_users:
+            create_notification(
+                user       = admin,
+                title      = f'New proposal — {task.title}',
+                body       = f'{request.user.full_name} has applied to "{task.title}"',
+                notif_type = 'task',
+            )
+
+        return Response({
+            'id':         proposal.id,
+            'status':     proposal.status,
+            'message':    'Proposal submitted successfully',
+        }, status=201)
+
+# ── WORKER: Get all proposals for logged-in user ──
+class UserProposalListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        status_filter = request.query_params.get('status', '')
+        proposals     = Proposal.objects.filter(
+            user=request.user
+        ).select_related('task').order_by('-created_at')
+
+        if status_filter:
+            proposals = proposals.filter(status=status_filter)
+
+        data = [{
+            'id':          p.id,
+            'task_id':     p.task.id,
+            'task_title':  p.task.title,
+            'task_budget': str(p.task.budget),
+            'task_type':   p.task.job_type,
+            'posted_by':   p.task.posted_by.full_name if p.task.posted_by else 'Admin',
+            'cover_note':  p.cover_note,
+            'status':      p.status,
+            'admin_note':  p.admin_note,
+            'created_at':  p.created_at,
+        } for p in proposals]
+
+        # Summary counts
+        counts = {
+            'all':      proposals.count(),
+            'pending':  proposals.filter(status='pending').count(),
+            'accepted': proposals.filter(status='accepted').count(),
+            'rejected': proposals.filter(status='rejected').count(),
+        }
+
+        return Response({'proposals': data, 'counts': counts})
+
+# ── WORKER: Withdraw a proposal ──
+class WithdrawProposalView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, proposal_id):
+        try:
+            proposal = Proposal.objects.get(
+                id=proposal_id,
+                user=request.user,
+                status='pending'  # Can only withdraw pending proposals
+            )
+        except Proposal.DoesNotExist:
+            return Response({'error': 'Proposal not found or cannot be withdrawn'}, status=404)
+
+        proposal.status = 'withdrawn'
+        proposal.save()
+        return Response({'message': 'Proposal withdrawn'})
+
+# ── WORKER: Get ongoing jobs (accepted proposals) ──
+class OngoingJobsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Ongoing = accepted proposals that haven't been fully submitted yet
+        proposals = Proposal.objects.filter(
+            user   = request.user,
+            status = 'accepted'
+        ).select_related('task').order_by('-updated_at')
+
+        data = []
+        for p in proposals:
+            # Get latest submission if any
+            latest_sub = p.submissions.order_by('-created_at').first()
+            data.append({
+                'proposal_id':   p.id,
+                'task_id':       p.task.id,
+                'task_title':    p.task.title,
+                'task_desc':     p.task.description,
+                'task_budget':   str(p.task.budget),
+                'task_type':     p.task.job_type,
+                'task_category': p.task.category,
+                'task_data_type':p.task.data_type,
+                'task_experience':p.task.experience,
+                'task_length':   p.task.project_length,
+                'task_skills':   p.task.skills_list(),
+                'task_instructions': p.task.instructions,
+                'posted_by':     p.task.posted_by.full_name if p.task.posted_by else 'Admin',
+                'accepted_at':   p.updated_at,
+                'submission':    {
+                    'id':     latest_sub.id,
+                    'status': latest_sub.status,
+                    'notes':  latest_sub.notes,
+                } if latest_sub else None,
+            })
+
+        return Response(data)
+
+# ── WORKER: Get single ongoing job detail ──
+class OngoingJobDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, proposal_id):
+        try:
+            proposal = Proposal.objects.select_related('task').get(
+                id     = proposal_id,
+                user   = request.user,
+                status = 'accepted'
+            )
+        except Proposal.DoesNotExist:
+            return Response({'error': 'Job not found'}, status=404)
+
+        # Get all submissions for this proposal
+        submissions = proposal.submissions.order_by('-created_at')
+        sub_data = [{
+            'id':         s.id,
+            'status':     s.status,
+            'notes':      s.notes,
+            'admin_note': s.admin_note,
+            'created_at': s.created_at,
+        } for s in submissions]
+
+        return Response({
+            'proposal_id':    proposal.id,
+            'task_id':        proposal.task.id,
+            'task_title':     proposal.task.title,
+            'task_desc':      proposal.task.description,
+            'task_budget':    str(proposal.task.budget),
+            'task_category':  proposal.task.category,
+            'task_data_type': proposal.task.data_type,
+            'task_experience':proposal.task.experience,
+            'task_length':    proposal.task.project_length,
+            'task_skills':    proposal.task.skills_list(),
+            'task_instructions': proposal.task.instructions,
+            'posted_by':      proposal.task.posted_by.full_name if proposal.task.posted_by else 'Admin',
+            'accepted_at':    proposal.updated_at,
+            'submissions':    sub_data,
+        })
+
+# ── WORKER: Submit work for an ongoing job ──
+class SubmitWorkView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, proposal_id):
+        try:
+            proposal = Proposal.objects.get(
+                id     = proposal_id,
+                user   = request.user,
+                status = 'accepted'
+            )
+        except Proposal.DoesNotExist:
+            return Response({'error': 'Job not found'}, status=404)
+
+        # Create submission
+        submission = Submission(
+            proposal = proposal,
+            notes    = request.data.get('notes', ''),
+        )
+
+        # Handle file upload if provided
+        if 'file' in request.FILES:
+            submission.file = request.FILES['file']
+
+        submission.save()
+
+        # Create a Payout record in pending status
+        Payout.objects.create(
+            user   = request.user,
+            task   = proposal.task,
+            amount = proposal.task.budget,
+            status = 'pending',
+        )
+
+        # Notify admin of new submission
+        admin_users = User.objects.filter(is_staff=True)
+        for admin in admin_users:
+            create_notification(
+                user       = admin,
+                title      = f'New submission — {proposal.task.title}',
+                body       = f'{request.user.full_name} submitted work for "{proposal.task.title}". Review it in Payout Management.',
+                notif_type = 'task',
+            )
+
+        # Notify worker
+        create_notification(
+            user       = request.user,
+            title      = 'Work submitted successfully',
+            body       = f'Your submission for "{proposal.task.title}" has been received and is pending review.',
+            notif_type = 'task',
+        )
+
+        return Response({
+            'id':      submission.id,
+            'status':  submission.status,
+            'message': 'Work submitted successfully. Pending admin review.',
+        }, status=201)
+
+# ── MESSAGES: Get all conversations for logged-in user ──
+class ConversationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        # Get all unique people this user has messaged with
+        from django.db.models import Q, Max
+        conversations = Message.objects.filter(
+            Q(sender=user) | Q(receiver=user)
+        ).values(
+            'sender', 'receiver'
+        ).distinct()
+
+        # Find unique other parties
+        other_user_ids = set()
+        for conv in conversations:
+            other_id = conv['receiver'] if conv['sender'] == user.id else conv['sender']
+            other_user_ids.add(other_id)
+
+        data = []
+        for other_id in other_user_ids:
+            try:
+                other_user = User.objects.get(id=other_id)
+            except User.DoesNotExist:
+                continue
+
+            # Get the latest message in this conversation
+            latest = Message.objects.filter(
+                Q(sender=user, receiver=other_user) |
+                Q(sender=other_user, receiver=user)
+            ).order_by('-created_at').first()
+
+            # Count unread messages from this person
+            unread = Message.objects.filter(
+                sender   = other_user,
+                receiver = user,
+                is_read  = False
+            ).count()
+
+            if latest:
+                data.append({
+                    'other_user_id':   other_user.id,
+                    'other_user_name': other_user.full_name,
+                    'other_is_admin':  other_user.is_staff,
+                    'latest_message':  latest.body,
+                    'latest_time':     latest.created_at,
+                    'unread_count':    unread,
+                    'task_title':      latest.task.title if latest.task else None,
+                })
+
+        # Sort by latest message time
+        data.sort(key=lambda x: x['latest_time'], reverse=True)
+        return Response(data)
+
+# ── MESSAGES: Get messages with a specific user ──
+class MessageThreadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, other_user_id):
+        from django.db.models import Q
+        try:
+            other_user = User.objects.get(id=other_user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=404)
+
+        # Get all messages between these two users
+        messages = Message.objects.filter(
+            Q(sender=request.user, receiver=other_user) |
+            Q(sender=other_user, receiver=request.user)
+        ).order_by('created_at')
+
+        # Mark all received messages as read
+        messages.filter(receiver=request.user, is_read=False).update(is_read=True)
+
+        data = [{
+            'id':         m.id,
+            'body':       m.body,
+            'is_mine':    m.sender == request.user,
+            'sender_name':m.sender.full_name,
+            'task_title': m.task.title if m.task else None,
+            'created_at': m.created_at,
+        } for m in messages]
+
+        return Response({
+            'messages':        data,
+            'other_user_name': other_user.full_name,
+            'other_is_admin':  other_user.is_staff,
+        })
+
+# ── MESSAGES: Send a message ──
+class SendMessageView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        receiver_id = request.data.get('receiver_id')
+        body        = request.data.get('body', '').strip()
+        task_id     = request.data.get('task_id')
+
+        if not body:
+            return Response({'error': 'Message cannot be empty'}, status=400)
+
+        try:
+            receiver = User.objects.get(id=receiver_id)
+        except User.DoesNotExist:
+            return Response({'error': 'Receiver not found'}, status=404)
+
+        task = None
+        if task_id:
+            try:
+                task = Task.objects.get(id=task_id)
+            except Task.DoesNotExist:
+                pass
+
+        message = Message.objects.create(
+            sender   = request.user,
+            receiver = receiver,
+            body     = body,
+            task     = task,
+        )
+
+        # Notify receiver
+        create_notification(
+            user       = receiver,
+            title      = f'New message from {request.user.full_name}',
+            body       = body[:100],
+            notif_type = 'message',
+        )
+
+        return Response({
+            'id':         message.id,
+            'body':       message.body,
+            'is_mine':    True,
+            'created_at': message.created_at,
+        }, status=201)
+
+# ── ADMIN: Get all proposals across all tasks ──
+class AdminProposalListView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        status_filter = request.query_params.get('status', '')
+        proposals     = Proposal.objects.select_related(
+            'user', 'task'
+        ).order_by('-created_at')
+
+        if status_filter:
+            proposals = proposals.filter(status=status_filter)
+
+        data = [{
+            'id':          p.id,
+            'user_id':     p.user.id,
+            'user_name':   p.user.full_name,
+            'user_email':  p.user.email,
+            'task_id':     p.task.id,
+            'task_title':  p.task.title,
+            'task_budget': str(p.task.budget),
+            'cover_note':  p.cover_note,
+            'status':      p.status,
+            'admin_note':  p.admin_note,
+            'created_at':  p.created_at,
+        } for p in proposals]
+
+        return Response(data)
+
+# ── ADMIN: Accept or reject a proposal ──
+class AdminReviewProposalView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def patch(self, request, proposal_id):
+        try:
+            proposal = Proposal.objects.select_related('user', 'task').get(id=proposal_id)
+        except Proposal.DoesNotExist:
+            return Response({'error': 'Proposal not found'}, status=404)
+
+        action     = request.data.get('action')  # 'accept' or 'reject'
+        admin_note = request.data.get('admin_note', '')
+
+        if action == 'accept':
+            proposal.status     = 'accepted'
+            proposal.admin_note = admin_note
+            proposal.save()
+
+            # Notify worker they were accepted
+            create_notification(
+                user       = proposal.user,
+                title      = f'Proposal accepted — {proposal.task.title}',
+                body       = f'Congratulations! Your proposal for "{proposal.task.title}" has been accepted. Go to Ongoing Jobs to start working.',
+                notif_type = 'task',
+            )
+
+        elif action == 'reject':
+            proposal.status     = 'rejected'
+            proposal.admin_note = admin_note
+            proposal.save()
+
+            # Notify worker they were rejected
+            create_notification(
+                user       = proposal.user,
+                title      = f'Proposal not selected — {proposal.task.title}',
+                body       = admin_note or f'Your proposal for "{proposal.task.title}" was not selected this time.',
+                notif_type = 'task',
+            )
+        else:
+            return Response({'error': 'action must be accept or reject'}, status=400)
+
+        return Response({
+            'message': f'Proposal {action}ed successfully',
+            'status':  proposal.status,
+        })
     
