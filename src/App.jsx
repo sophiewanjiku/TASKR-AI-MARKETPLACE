@@ -16,6 +16,13 @@ import Notifications  from './pages/Notifications';
 import Messages    from './pages/Messages';
 import OngoingJobs from './pages/OngoingJobs';
 import Proposals   from './pages/Proposals';
+import AllTasks          from './pages/admin/AllTasks';
+import PendingReview     from './pages/admin/PendingReview';
+import AllUsers          from './pages/admin/AllUsers';
+import VerificationQueue from './pages/admin/VerificationQueue';
+import Analytics         from './pages/admin/Analytics';
+import RevenueReports    from './pages/admin/RevenueReports';
+import Settings          from './pages/admin/Settings';
 
 // ── Protects routes that require login ──
 // If no access token exists in localStorage, redirect to /login
@@ -54,16 +61,16 @@ function App() {
 
         {/* Admin routes — protected, only accessible when logged in */}
         <Route path="/admin/dashboard"    element={<PrivateRoute><AdminDashboard /></PrivateRoute>} />
-        <Route path="/admin/analytics"    element={<PrivateRoute><div className="p-8 text-gray-400">Analytics — coming soon</div></PrivateRoute>} />
-        <Route path="/admin/tasks"        element={<PrivateRoute><div className="p-8 text-gray-400">All Tasks — coming soon</div></PrivateRoute>} />
-        <Route path="/admin/review"       element={<PrivateRoute><div className="p-8 text-gray-400">Pending Review — coming soon</div></PrivateRoute>} />
+        <Route path="/admin/analytics"    element={<PrivateRoute><Analytics /></PrivateRoute>} />
+        <Route path="/admin/review"       element={<PrivateRoute><PendingReview /></PrivateRoute>} />
+        <Route path="/admin/review"       element={<PrivateRoute><PendingReview /></PrivateRoute>} />
         <Route path="/admin/upload" element={<PrivateRoute><UploadTask /></PrivateRoute>} />  
-        <Route path="/admin/users"        element={<PrivateRoute><div className="p-8 text-gray-400">All Users — coming soon</div></PrivateRoute>} />
+        <Route path="/admin/users"        element={<PrivateRoute><AllUsers /></PrivateRoute>} />
         <Route path="/admin/flagged"      element={<PrivateRoute><div className="p-8 text-gray-400">Flagged Accounts — coming soon</div></PrivateRoute>} />
-        <Route path="/admin/verification" element={<PrivateRoute><div className="p-8 text-gray-400">Verification Queue — coming soon</div></PrivateRoute>} />
+        <Route path="/admin/verification" element={<PrivateRoute><VerificationQueue /></PrivateRoute>} />
         <Route path="/admin/payouts" element={<PrivateRoute><AdminPayouts /></PrivateRoute>} />
-        <Route path="/admin/reports"      element={<PrivateRoute><div className="p-8 text-gray-400">Revenue Reports — coming soon</div></PrivateRoute>} />
-        <Route path="/admin/settings"     element={<PrivateRoute><div className="p-8 text-gray-400">Settings — coming soon</div></PrivateRoute>} />
+        <Route path="/admin/reports"      element={<PrivateRoute><RevenueReports /></PrivateRoute>} />
+        <Route path="/admin/settings"     element={<PrivateRoute><Settings /></PrivateRoute>} />
 
         {/* Catch-all redirect */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
