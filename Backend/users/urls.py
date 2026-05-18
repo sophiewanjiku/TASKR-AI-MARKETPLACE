@@ -41,6 +41,14 @@ from .views import (
     SendMessageView,
     AdminProposalListView,
     AdminReviewProposalView,
+    AdminTaskDetailView,
+    AdminPendingReviewView,
+    AdminReviewSubmissionView,
+    AdminUserDetailView,
+    AdminVerificationQueueView,
+    AdminAnalyticsView,
+    AdminRevenueReportView,
+    AdminSettingsView,
 )
 
 urlpatterns = [
@@ -99,27 +107,50 @@ urlpatterns = [
     path('notifications/read/',  MarkNotificationReadView.as_view(), name='mark-read'),
 
     # ── Invoices & Reports ──
-    path('invoices/',            InvoiceListView.as_view(),          name='invoices'),
+    path('invoices/', InvoiceListView.as_view(),          name='invoices'),
 
     # ── Completed Jobs ──
-    path('completed-jobs/',      CompletedJobsView.as_view(),        name='completed-jobs'),
+    path('completed-jobs/', CompletedJobsView.as_view(),        name='completed-jobs'),
 
     # ── Proposals ──
-    path('proposals/',                          UserProposalListView.as_view(),   name='proposals'),
+    path('proposals/', UserProposalListView.as_view(),   name='proposals'),
     path('proposals/<int:proposal_id>/withdraw/', WithdrawProposalView.as_view(), name='withdraw-proposal'),
-    path('tasks/<int:task_id>/apply/',          SubmitProposalView.as_view(),     name='apply-task'),
+    path('tasks/<int:task_id>/apply/', SubmitProposalView.as_view(),     name='apply-task'),
 
     # ── Ongoing jobs ──
-    path('ongoing-jobs/',                       OngoingJobsView.as_view(),        name='ongoing-jobs'),
-    path('ongoing-jobs/<int:proposal_id>/',     OngoingJobDetailView.as_view(),   name='ongoing-job-detail'),
+    path('ongoing-jobs/', OngoingJobsView.as_view(),        name='ongoing-jobs'),
+    path('ongoing-jobs/<int:proposal_id>/', OngoingJobDetailView.as_view(),   name='ongoing-job-detail'),
     path('ongoing-jobs/<int:proposal_id>/submit/', SubmitWorkView.as_view(),      name='submit-work'),
 
     # ── Messages ──
-    path('messages/',                           ConversationListView.as_view(),   name='conversations'),
-    path('messages/<int:other_user_id>/',       MessageThreadView.as_view(),      name='message-thread'),
-    path('messages/send/',                      SendMessageView.as_view(),        name='send-message'),
+    path('messages/', ConversationListView.as_view(),   name='conversations'),
+    path('messages/<int:other_user_id>/', MessageThreadView.as_view(),      name='message-thread'),
+    path('messages/send/', SendMessageView.as_view(),        name='send-message'),
 
     # ── Admin proposals ──
-    path('admin/proposals/',                              AdminProposalListView.as_view(),   name='admin-proposals'),
-    path('admin/proposals/<int:proposal_id>/review/',     AdminReviewProposalView.as_view(), name='admin-review-proposal'),
+    path('admin/proposals/', AdminProposalListView.as_view(),   name='admin-proposals'),
+    path('admin/proposals/<int:proposal_id>/review/',   AdminReviewProposalView.as_view(), name='admin-review-proposal'),
+
+    # ── Admin task management ──
+    path('admin/tasks/<int:task_id>/', AdminTaskDetailView.as_view(),      name='admin-task-detail'),
+
+    # ── Admin pending review ──
+    path('admin/review/', AdminPendingReviewView.as_view(),   name='admin-review'),
+    path('admin/review/<int:submission_id>/', AdminReviewSubmissionView.as_view(),name='admin-review-submission'),
+
+    # ── Admin user detail ──
+    path('admin/users/<int:user_id>/', AdminUserDetailView.as_view(),      name='admin-user-detail'),
+
+    # ── Admin verification queue ──
+    path('admin/verification/', AdminVerificationQueueView.as_view(), name='admin-verification'),
+    path('admin/verification/<int:user_id>/', AdminVerificationQueueView.as_view(), name='admin-verify-user'),
+
+    # ── Admin analytics ──
+    path('admin/analytics/', AdminAnalyticsView.as_view(),       name='admin-analytics'),
+
+    # ── Admin revenue reports ──
+    path('admin/revenue/', AdminRevenueReportView.as_view(),   name='admin-revenue'),
+
+    # ── Admin settings ──
+    path('admin/settings/', AdminSettingsView.as_view(),        name='admin-settings'),
     ]

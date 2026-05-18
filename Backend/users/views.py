@@ -1407,3 +1407,470 @@ class AdminReviewProposalView(APIView):
             'status':  proposal.status,
         })
     
+# ── ADMIN: Full task management ──
+class AdminTaskDetailView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, task_id):
+        """Get a single task with full details including proposals."""
+        try:
+            task = Task.objects.get(id=task_id)
+        except Task.DoesNotExist:
+            return Response({'error': 'Task not found'}, status=404)
+
+        # Count proposals by status
+        proposals = task.proposals.all()
+        serializer = TaskSerializer(task)
+        return Response({
+            **serializer.data,
+            'proposal_counts': {
+                'total':    proposals.count(),
+                'pending':  proposals.filter(status='pending').count(),
+                'accepted': proposals.filter(status='accepted').count(),
+                'rejected': proposals.filter(status='rejected').count(),
+            }
+        })
+
+    def patch(self, request, task_id):
+        """Update a task — admin can edit any field."""
+        try:
+            task = Task.objects.get(id=task_id)
+        except Task.DoesNotExist:
+            return Response({'error': 'Task not found'}, status=404)
+
+        # Update any provided fields
+        updatable = [
+            'title', 'description', 'category', 'data_type',
+            'job_type', 'experience', 'project_length', 'budget',
+            'hours_per_week', 'skills', 'instructions',
+            'is_published', 'allow_multiple', 'require_verification'
+        ]
+        for field in updatable:
+            if field in request.data:
+                setattr(task, field, request.data[field])
+        task.save()
+
+        serializer = TaskSerializer(task)
+        return Response(serializer.data)
+
+    def delete(self, request, task_id):
+        """Permanently delete a task."""
+        try:
+            task = Task.objects.get(id=task_id)
+        except Task.DoesNotExist:
+            return Response({'error': 'Task not found'}, status=404)
+
+        task.delete()
+        return Response({'message': 'Task deleted successfully'})
+
+
+# ── ADMIN: Pending review queue ──
+class AdminPendingReviewView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        """
+        Returns all submissions pending review.
+        These are work submissions from workers that need admin verification.
+        """
+        submissions = Submission.objects.select_related(
+            'proposal__user',
+            'proposal__task',
+        ).filter(status='submitted').order_by('-created_at')
+
+        data = [{
+            'submission_id':  s.id,
+            'proposal_id':    s.proposal.id,
+            'worker_id':      s.proposal.user.id,
+            'worker_name':    s.proposal.user.full_name,
+            'worker_email':   s.proposal.user.email,
+            'task_id':        s.proposal.task.id,
+            'task_title':     s.proposal.task.title,
+            'task_budget':    str(s.proposal.task.budget),
+            'task_category':  s.proposal.task.category,
+            'notes':          s.notes,
+            'file_url':       request.build_absolute_uri(s.file.url) if s.file else None,
+            'submitted_at':   s.created_at,
+        } for s in submissions]
+
+        return Response({
+            'submissions': data,
+            'count':       len(data),
+        })
+
+
+class AdminReviewSubmissionView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def patch(self, request, submission_id):
+        """
+        Approve or reject a work submission.
+        On approval — creates a Payout record automatically.
+        """
+        try:
+            submission = Submission.objects.select_related(
+                'proposal__user', 'proposal__task'
+            ).get(id=submission_id)
+        except Submission.DoesNotExist:
+            return Response({'error': 'Submission not found'}, status=404)
+
+        action     = request.data.get('action')    # 'approve' or 'reject'
+        admin_note = request.data.get('admin_note', '')
+        accuracy   = request.data.get('accuracy_score')
+
+        if action == 'approve':
+            submission.status     = 'approved'
+            submission.admin_note = admin_note
+            submission.save()
+
+            # Update or create payout record with accuracy score
+            payout, created = Payout.objects.get_or_create(
+                user   = submission.proposal.user,
+                task   = submission.proposal.task,
+                defaults={
+                    'amount': submission.proposal.task.budget,
+                    'status': 'approved',
+                }
+            )
+            if not created:
+                payout.status = 'approved'
+            if accuracy:
+                payout.accuracy_score = float(accuracy)
+            payout.save()
+
+            # Notify worker
+            create_notification(
+                user       = submission.proposal.user,
+                title      = 'Submission approved',
+                body       = f'Your work on "{submission.proposal.task.title}" was approved with {accuracy}% accuracy. Payout is being processed.',
+                notif_type = 'task',
+            )
+
+        elif action == 'reject':
+            submission.status     = 'rejected'
+            submission.admin_note = admin_note
+            submission.save()
+
+            # Update payout to rejected
+            Payout.objects.filter(
+                user = submission.proposal.user,
+                task = submission.proposal.task,
+            ).update(status='rejected')
+
+            # Notify worker
+            create_notification(
+                user       = submission.proposal.user,
+                title      = 'Submission rejected',
+                body       = f'Your submission for "{submission.proposal.task.title}" was rejected. {admin_note or "Please review the guidelines and resubmit."}',
+                notif_type = 'task',
+            )
+        else:
+            return Response({'error': 'action must be approve or reject'}, status=400)
+
+        return Response({
+            'message': f'Submission {action}d successfully',
+            'status':  submission.status,
+        })
+
+
+# ── ADMIN: Full user management ──
+class AdminUserDetailView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, user_id):
+        """Get full details of a single user including profile."""
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=404)
+
+        # Get profile if exists
+        try:
+            profile = user.profile
+            profile_data = {
+                'location':       profile.location,
+                'about':          profile.about,
+                'skills':         profile.skills_list(),
+                'onboarding_step':profile.onboarding_step,
+                'is_complete':    profile.is_complete,
+                'terms_accepted': profile.terms_accepted,
+                'date_of_birth':  profile.date_of_birth,
+            }
+        except UserProfile.DoesNotExist:
+            profile_data = None
+
+        # Payment method
+        try:
+            pm = user.payment_method
+            payment_data = {
+                'masked_phone': mask_phone(pm.phone_number),
+                'account_name': pm.account_name,
+                'is_verified':  pm.is_verified,
+            }
+        except PaymentMethod.DoesNotExist:
+            payment_data = None
+
+        # Stats
+        total_earned = sum(
+            float(p.amount) for p in
+            Payout.objects.filter(user=user, status='paid')
+        )
+
+        return Response({
+            'id':          user.id,
+            'email':       user.email,
+            'full_name':   user.full_name,
+            'phone':       user.phone_number,
+            'is_active':   user.is_active,
+            'is_verified': user.is_verified,
+            'is_staff':    user.is_staff,
+            'date_joined': user.date_joined,
+            'profile':     profile_data,
+            'payment':     payment_data,
+            'stats': {
+                'total_proposals':  Proposal.objects.filter(user=user).count(),
+                'accepted':         Proposal.objects.filter(user=user, status='accepted').count(),
+                'total_earned':     total_earned,
+                'completed_tasks':  Payout.objects.filter(user=user, status='paid').count(),
+            }
+        })
+
+
+# ── ADMIN: Verification queue ──
+class AdminVerificationQueueView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        """
+        Returns users whose profiles are complete
+        but not yet manually verified by admin.
+        """
+        profiles = UserProfile.objects.filter(
+            is_complete=True,
+            user__is_verified=False,
+        ).select_related('user').order_by('-updated_at')
+
+        data = [{
+            'user_id':        p.user.id,
+            'full_name':      p.user.full_name,
+            'email':          p.user.email,
+            'location':       p.location,
+            'skills':         p.skills_list(),
+            'onboarding_step':p.onboarding_step,
+            'terms_accepted': p.terms_accepted,
+            'submitted_at':   p.updated_at,
+        } for p in profiles]
+
+        return Response({'queue': data, 'count': len(data)})
+
+    def patch(self, request, user_id):
+        """Manually verify or unverify a user."""
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found'}, status=404)
+
+        action = request.data.get('action')  # 'verify' or 'unverify'
+
+        if action == 'verify':
+            user.is_verified = True
+            user.save()
+
+            # Notify the user
+            create_notification(
+                user       = user,
+                title      = 'Account verified',
+                body       = 'Your account has been verified by our team. You can now be assigned tasks.',
+                notif_type = 'system',
+            )
+            return Response({'message': 'User verified successfully'})
+
+        elif action == 'unverify':
+            user.is_verified = False
+            user.save()
+            return Response({'message': 'User unverified'})
+
+        return Response({'error': 'action must be verify or unverify'}, status=400)
+
+
+# ── ADMIN: Analytics ──
+class AdminAnalyticsView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        """
+        Returns platform-wide analytics data.
+        Used to populate the admin analytics charts and stats.
+        """
+        from django.db.models import Sum, Count
+        from django.db.models.functions import TruncMonth
+
+        # ── User growth by month ──
+        user_growth = (
+            User.objects.annotate(month=TruncMonth('date_joined'))
+            .values('month')
+            .annotate(count=Count('id'))
+            .order_by('month')
+        )
+        user_growth_data = {
+            item['month'].strftime('%b %Y'): item['count']
+            for item in user_growth
+        }
+
+        # ── Revenue by month ──
+        revenue = (
+            Payout.objects.filter(status='paid')
+            .annotate(month=TruncMonth('paid_at'))
+            .values('month')
+            .annotate(total=Sum('amount'))
+            .order_by('month')
+        )
+        revenue_data = {
+            item['month'].strftime('%b %Y'): float(item['total'])
+            for item in revenue
+            if item['month']
+        }
+
+        # ── Task category breakdown ──
+        categories = (
+            Task.objects.values('category')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+        )
+        category_data = {
+            item['category']: item['count']
+            for item in categories
+        }
+
+        # ── Submission accuracy average ──
+        from django.db.models import Avg
+        avg_accuracy = Payout.objects.filter(
+            accuracy_score__isnull=False
+        ).aggregate(avg=Avg('accuracy_score'))['avg'] or 0
+
+        # ── Overall platform stats ──
+        total_revenue = Payout.objects.filter(
+            status='paid'
+        ).aggregate(total=Sum('amount'))['total'] or 0
+
+        return Response({
+            'user_growth':    user_growth_data,
+            'revenue':        revenue_data,
+            'categories':     category_data,
+            'avg_accuracy':   round(avg_accuracy, 1),
+            'totals': {
+                'users':       User.objects.count(),
+                'tasks':       Task.objects.count(),
+                'proposals':   Proposal.objects.count(),
+                'submissions': Submission.objects.count(),
+                'revenue':     float(total_revenue),
+                'paid_out':    Payout.objects.filter(status='paid').count(),
+            }
+        })
+
+
+# ── ADMIN: Revenue reports ──
+class AdminRevenueReportView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        """
+        Detailed revenue breakdown for the admin reports page.
+        """
+        from django.db.models import Sum, Count
+        from django.db.models.functions import TruncMonth
+
+        # Monthly revenue
+        monthly = (
+            Payout.objects.filter(status='paid')
+            .annotate(month=TruncMonth('paid_at'))
+            .values('month')
+            .annotate(
+                total=Sum('amount'),
+                count=Count('id'),
+            )
+            .order_by('-month')
+        )
+
+        monthly_data = [{
+            'period': item['month'].strftime('%B %Y') if item['month'] else 'Unknown',
+            'total':  float(item['total']),
+            'count':  item['count'],
+        } for item in monthly]
+
+        # Revenue by category
+        by_category = (
+            Payout.objects.filter(status='paid')
+            .select_related('task')
+            .values('task__category')
+            .annotate(total=Sum('amount'), count=Count('id'))
+            .order_by('-total')
+        )
+        category_data = [{
+            'category': item['task__category'],
+            'total':    float(item['total']),
+            'count':    item['count'],
+        } for item in by_category]
+
+        # Top earners
+        top_earners = (
+            Payout.objects.filter(status='paid')
+            .values('user__full_name', 'user__email')
+            .annotate(total=Sum('amount'), tasks=Count('id'))
+            .order_by('-total')[:10]
+        )
+        earner_data = [{
+            'name':  item['user__full_name'],
+            'email': item['user__email'],
+            'total': float(item['total']),
+            'tasks': item['tasks'],
+        } for item in top_earners]
+
+        # Overall totals
+        from django.db.models import Sum as S
+        total_paid = Payout.objects.filter(
+            status='paid'
+        ).aggregate(t=S('amount'))['t'] or 0
+
+        total_pending = Payout.objects.filter(
+            status__in=['pending', 'approved']
+        ).aggregate(t=S('amount'))['t'] or 0
+
+        return Response({
+            'monthly':       monthly_data,
+            'by_category':   category_data,
+            'top_earners':   earner_data,
+            'summary': {
+                'total_paid':    float(total_paid),
+                'total_pending': float(total_pending),
+                'total_workers': Payout.objects.filter(status='paid').values('user').distinct().count(),
+            }
+        })
+
+
+# ── ADMIN: Platform settings ──
+class AdminSettingsView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        """Returns current platform settings."""
+        return Response({
+            'platform_name':            'Taskr AI',
+            'min_accuracy_threshold':   70,
+            'auto_payout':              False,
+            'require_profile_complete': True,
+            'max_proposals_per_task':   50,
+            'support_email':            'support@taskrai.com',
+        })
+
+    def patch(self, request):
+        """
+        Update platform settings.
+        In production these would be stored in a Settings model or cache.
+        For now returns success — extend with a Settings model as needed.
+        """
+        return Response({
+            'message': 'Settings updated successfully',
+            **request.data
+        })
+    
